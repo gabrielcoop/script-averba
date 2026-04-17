@@ -97,7 +97,7 @@ while ($true) {
 
             $novoRegistro = [PSCustomObject]@{
                 tipo   = $jsonTemp.tipo
-                numeroCte = $jsonTemp.numero
+                numeroCte = $jsonTemp.numeroCte
                 id     = $jsonTemp.id
                 usuarioSistema = $jsonTemp.usuarioSistema
                 data   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
