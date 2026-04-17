@@ -9,7 +9,7 @@ while (-not (Test-Path $baseCooper)) {
 Write-Host "Google Drive encontrado!"
 
 $pastaQuimico = Get-ChildItem $baseCooper -Recurse -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "*mico*" } |
+    Where-Object { $_.Name -like "*10.*" } |
     Select-Object -First 1
 
 if (-not $pastaQuimico) {
@@ -21,7 +21,7 @@ $pastaQuimico = $pastaQuimico.FullName
 Write-Host "Pasta Químico:" $pastaQuimico
 
 $pastaTI = Get-ChildItem $baseCooper -Recurse -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "*T.I*" } |
+    Where-Object { $_.Name -like "*16.*" } |
     Select-Object -First 1
 
 if (-not $pastaTI) {
