@@ -1,48 +1,83 @@
 $downloads = "$env:USERPROFILE\Downloads"
 $baseCooper = "G:\.shortcut-targets-by-id"
+$cacheFile = "C:\XML_MDFE\cache_paths.json"
+
+New-Item -ItemType Directory -Force -Path "C:\XML_MDFE" | Out-Null
 
 while (-not (Test-Path $baseCooper)) {
-    Write-Host "Aguardando Google Drive montar..."
-    Start-Sleep 10
+    Start-Sleep 5
 }
 
-Write-Host "Google Drive encontrado!"
+$pastaPublico = $null
+$pastaQuimico = $null
+$pastaTI      = $null
 
-$pastaQuimico = Get-ChildItem $baseCooper -Recurse -Directory -ErrorAction SilentlyContinue |
-    Write-Host "Procurando Pasta Quimico"
-    Where-Object { $_.Name -like "*10.*" } |
-    Select-Object -First 1
+if (Test-Path $cacheFile) {
+    try {
+        $cache = Get-Content $cacheFile -Raw | ConvertFrom-Json
 
-if (-not $pastaQuimico) {
-    Write-Host "Pasta Quimico não encontrada!"
-    exit
+        if (
+            (Test-Path $cache.publico) -and
+            (Test-Path $cache.quimico) -and
+            (Test-Path $cache.ti)
+        ) {
+            $pastaPublico = $cache.publico
+            $pastaQuimico = $cache.quimico
+            $pastaTI      = $cache.ti
+        }
+    }
+    catch {
+
+    }
 }
 
-$pastaQuimico = $pastaQuimico.FullName
-Write-Host "Pasta Quimico:" $pastaQuimico
+if (-not $pastaPublico -or -not $pastaQuimico -or -not $pastaTI) {
+    $nivel1 = Get-ChildItem $baseCooper -Directory -ErrorAction SilentlyContinue
 
-$pastaTI = Get-ChildItem $baseCooper -Recurse -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -like "*16.*" } |
-    Select-Object -First 1
+    $pastaPublicoObj = $nivel1 | ForEach-Object {
+        Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue
+    } | Where-Object { $_.Name -like "*blico" } | Select-Object -First 1
 
-if (-not $pastaTI) {
-    Write-Host "Pasta TI não encontrada!"
-    exit
+    if (-not $pastaPublicoObj) {
+        exit
+    }
+
+    $pastaPublico = $pastaPublicoObj.FullName
+
+    $pastaQuimicoObj = Get-ChildItem $pastaPublico -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "*10.*" } |
+        Select-Object -First 1
+
+    if (-not $pastaQuimicoObj) {
+        exit
+    }
+
+    $pastaQuimico = $pastaQuimicoObj.FullName
+
+    $pastaTIObj = Get-ChildItem $pastaPublico -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -like "*16.*" } |
+        Select-Object -First 1
+
+    if (-not $pastaTIObj) {
+        exit
+    }
+
+    $pastaTI = $pastaTIObj.FullName
+
+    @{
+        publico = $pastaPublico
+        quimico = $pastaQuimico
+        ti      = $pastaTI
+    } | ConvertTo-Json | Set-Content $cacheFile -Encoding UTF8
+
 }
 
-$pastaTI = $pastaTI.FullName
-Write-Host "Pasta TI:" $pastaTI
-
-$pastaXML = Join-Path $pastaQuimico "XML MDFe SEGURO RCV"
-$pastaControle = Join-Path $pastaTI "LOGS AVERBACAO"
-
+$pastaXML            = Join-Path $pastaQuimico "XML MDFe SEGURO RCV"
+$pastaControle       = Join-Path $pastaTI "LOGS AVERBACAO"
 $arquivoControleFinal = Join-Path $pastaControle "controle_mdfe.json"
 
-New-Item -ItemType Directory -Force -Path $pastaXML | Out-Null
+New-Item -ItemType Directory -Force -Path $pastaXML      | Out-Null
 New-Item -ItemType Directory -Force -Path $pastaControle | Out-Null
-
-Write-Host "Destino XML:" $pastaXML
-Write-Host "Destino Controle:" $pastaControle
 
 while ($true) {
 
@@ -56,21 +91,18 @@ while ($true) {
             $jsonString = Get-Content $controleTemp -Raw
 
             if (-not $jsonString -or $jsonString.Trim() -eq "") {
-                Write-Host "JSON vazio, ignorando..."
                 Remove-Item $controleTemp -Force
                 continue
             }
 
             $jsonTemp = $jsonString | ConvertFrom-Json
 
-            if (-not $jsonTemp.tipo -or $jsonTemp.tipo -ne "MDFe") {
-                Write-Host "Tipo inválido, ignorando..."
+            if ($jsonTemp.tipo -ne "MDFe") {
                 Remove-Item $controleTemp -Force
                 continue
             }
 
-            if (-not $jsonTemp.numero) {
-                Write-Host "JSON sem número, ignorando..."
+            if (-not $jsonTemp.numeroCte) {
                 Remove-Item $controleTemp -Force
                 continue
             }
@@ -90,18 +122,15 @@ while ($true) {
                 }
 
                 Move-Item $xml.FullName $destinoXML -ErrorAction Stop
-                Write-Host "XML movido:" $xml.Name
 
-            } else {
-                Write-Host "Nenhum XML encontrado"
             }
 
             $novoRegistro = [PSCustomObject]@{
-                tipo   = $jsonTemp.tipo
-                numeroCte = $jsonTemp.numeroCte
-                id     = $jsonTemp.id
+                tipo           = $jsonTemp.tipo
+                numeroCte      = $jsonTemp.numeroCte
+                id             = $jsonTemp.id
                 usuarioSistema = $jsonTemp.usuarioSistema
-                data   = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                data           = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             }
 
             if (Test-Path $arquivoControleFinal) {
@@ -114,18 +143,13 @@ while ($true) {
                 $conteudo = @()
             }
 
-            $conteudo = @($conteudo)
             $conteudo += $novoRegistro
 
             $conteudo | ConvertTo-Json -Depth 5 | Set-Content $arquivoControleFinal -Encoding UTF8
 
-            Write-Host "Registro adicionado ao histórico"
-
             Remove-Item $controleTemp -Force
 
         } catch {
-            Write-Host "Erro:" $_
-
             if (Test-Path $controleTemp) {
                 Remove-Item $controleTemp -Force
             }
