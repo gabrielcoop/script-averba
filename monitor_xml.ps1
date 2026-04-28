@@ -262,7 +262,7 @@ while ($true) {
                 id             = $jsonTemp.id
                 usuarioSistema = $jsonTemp.usuarioSistema
                 dataEvento     = $jsonTemp.data
-                dataProcessado = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+                dataProcessado = Get-Date -Format "dd/MM/yyyy HH:mm:ss"
             }
 
             if (Test-Path $arquivoControleFinal) {
