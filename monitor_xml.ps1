@@ -3,10 +3,10 @@ $baseCooper = "G:\.shortcut-targets-by-id"
 $cacheFile = "C:\XML_MDFE\cache_paths.json"
 $logFile = "C:\XML_MDFE\log.txt"
 $scriptName = "monitor_xml.ps1"
+$maquina = $env:COMPUTERNAME
 
 function Log($msg) {
     $usuario = $env:USERNAME
-    $maquina = $env:COMPUTERNAME
     $linha = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | $maquina | $usuario | $msg"
     Add-Content $logFile $linha
 }
