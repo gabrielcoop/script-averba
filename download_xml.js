@@ -2,33 +2,46 @@
   'use strict';
 
   function getCookie(nome) {
-    let cookies = document.cookie.split(';');
-
-    for (let c of cookies) {
+    for (let c of document.cookie.split(';')) {
       let [key, value] = c.trim().split('=');
-
-      if (key === nome) {
-        return decodeURIComponent(value);
-      }
+      if (key === nome) return decodeURIComponent(value);
     }
-
     return null;
   }
 
   function formatarDataBR() {
     try {
-      return new Date().toLocaleString("pt-BR", {
-        timeZone: "America/Sao_Paulo",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit"
+      const agora = new Date();
+
+      return agora.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo',
+        hour12: false
       });
     } catch {
-      return "sem_data";
+      return new Date().toLocaleString('pt-BR');
     }
+  }
+
+  function gerarControle(id, numeroCte) {
+    const usuarioSistema = getCookie("swu") || "desconhecido";
+    const dataBR = formatarDataBR();
+
+    const conteudo = JSON.stringify({
+      tipo: "MDFe",
+      id: id,
+      numeroCte: numeroCte,
+      usuarioSistema: usuarioSistema,
+      data: dataBR
+    }, null, 2);
+
+    const blob = new Blob([conteudo], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "controle_mdfe.json";
+
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   }
 
   function interceptar() {
@@ -38,50 +51,24 @@
 
       window.MDFe.exec = function (btn, id, tipo) {
 
-        let selecionado = document.querySelector('input[name="operacao"]:checked');
+        const selecionado = document.querySelector('input[name="operacao"]:checked');
 
         if (selecionado && selecionado.value === "G") {
 
-          let linhaCorreta = document.querySelector('tr.swrg-list-sel');
-
-          let numeroCte = linhaCorreta
+          const linhaCorreta = document.querySelector('tr.swrg-list-sel');
+          const numeroCte = linhaCorreta
             ?.querySelector('td[swni="no"]')
             ?.innerText
             ?.trim();
 
           if (numeroCte) {
-
-            let usuarioSistema = getCookie("swu") || "desconhecido";
-            let dataFormatada = formatarDataBR();
-
-            setTimeout(() => {
-
-              let conteudo = JSON.stringify({
-                tipo: "MDFe",
-                id: id,
-                numeroCte: numeroCte,
-                usuarioSistema: usuarioSistema,
-                data: dataFormatada
-              });
-
-              let blob = new Blob([conteudo], { type: "application/json" });
-              let a = document.createElement("a");
-
-              a.href = URL.createObjectURL(blob);
-              a.download = "controle_mdfe.json";
-              a.click();
-
-            }, 100);
-
-          } else {
-            console.warn("Não encontrou número do MDF-e");
+            gerarControle(id, numeroCte);
           }
         }
 
         return originalExec.apply(this, arguments);
       };
 
-      console.log("[MDFe] Hook aplicado com sucesso");
 
     } else {
       setTimeout(interceptar, 1000);

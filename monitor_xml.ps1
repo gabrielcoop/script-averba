@@ -1,42 +1,92 @@
-$downloads = "$env:USERPROFILE\Downloads"
-$baseCooper = "G:\.shortcut-targets-by-id"
-$cacheFile = "C:\XML_MDFE\cache_paths.json"
-$logFile = "C:\XML_MDFE\log.txt"
-$scriptName = "monitor_xml.ps1"
-$maquina = $env:COMPUTERNAME
+$downloads   = "$env:USERPROFILE\Downloads"
+$baseCooper  = "G:\.shortcut-targets-by-id"
+$cacheFile   = "C:\XML_MDFE\cache_paths.json"
+$logLocal    = "C:\XML_MDFE\log_local.txt"
+$errorLocal  = "C:\XML_MDFE\error_local.txt"
+$scriptName  = "monitor_xml.ps1"
+$maquina     = $env:COMPUTERNAME
 
-function Log($msg) {
-    $usuario = $env:USERNAME
-    $linha = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | $maquina | $usuario | $msg"
-    Add-Content $logFile $linha
+$modelos = @{
+    "55" = "NF-e"
+    "57" = "CT-e"
+    "58" = "MDF-e"
+    "65" = "NFC-e"
+    "67" = "CT-e OS"
 }
 
-$jaRodando = Get-CimInstance Win32_Process |
-Where-Object { $_.CommandLine -like "*$scriptName*" }
+function Log($msg, $arquivo = $null) {
+    $usuario = $env:USERNAME
+    $linha   = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | $maquina | $usuario | $msg"
 
-if ($jaRodando.Count -gt 1) {
-    Log "Já existe outra instância rodando"
-    exit
+    if ($arquivo) {
+        $alvo = $arquivo
+    } else {
+        $alvo = $script:logFile
+    }
+
+    if (-not $alvo) {
+        $alvo = $logLocal
+    }
+
+    try {
+        Add-Content $alvo $linha
+    } catch {
+        Add-Content $logLocal $linha
+    }
+}
+
+function LogErro($msg) {
+    if ($script:errorLogFile) {
+        $arquivo = $script:errorLogFile
+    } else {
+        $arquivo = $errorLocal
+    }
+
+    Log "[ERRO] $msg" $arquivo
+}
+
+function LogInicio {
+    $usuario = $env:USERNAME
+    $data    = Get-Date -Format "dd/MM/yyyy HH:mm:ss"
+    $sep     = "=================================================="
+
+    if ($script:logFile) {
+        $alvo = $script:logFile
+    } else {
+        $alvo = $logLocal
+    }
+
+    Add-Content $alvo ""
+    Add-Content $alvo $sep
+    Add-Content $alvo "INICIO DO SCRIPT | $data | $maquina | $usuario"
+    Add-Content $alvo $sep
 }
 
 New-Item -ItemType Directory -Force -Path "C:\XML_MDFE" | Out-Null
 
+$jaRodando = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like "*$scriptName*" }
+
+if ($jaRodando.Count -gt 1) {
+    Add-Content $logLocal "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') | $maquina | Instancia duplicada detectada - encerrando"
+    exit
+}
+
 $driveProcess = "GoogleDriveFS"
 
 function Get-GoogleDrivePath {
+    $base = "$env:ProgramFiles\Google\Drive File Stream"
 
-    Log "Buscando Google Drive"
-
-    $basePath = "$env:ProgramFiles\Google\Drive File Stream"
-
-    if (-not (Test-Path $basePath)) {
+    if (-not (Test-Path $base)) {
         return $null
     }
 
-    $versoes = Get-ChildItem $basePath -Directory | Sort-Object Name -Descending
+    $versoes = Get-ChildItem $base -Directory -ErrorAction SilentlyContinue |
+        Sort-Object Name -Descending
 
     foreach ($v in $versoes) {
         $exe = Join-Path $v.FullName "GoogleDriveFS.exe"
+
         if (Test-Path $exe) {
             return $exe
         }
@@ -46,89 +96,95 @@ function Get-GoogleDrivePath {
 }
 
 function Start-GoogleDrive {
-
     Log "Tentando iniciar Google Drive"
 
     $path = Get-GoogleDrivePath
 
-    if ($path -and (Test-Path $path)) {
+    if ($path) {
         Start-Process $path
-        Log "Iniciado: $path"
+        Log "Google Drive iniciado: $path"
     } else {
-        Log "Google Drive não encontrado"
+        Log "Executavel do Google Drive nao encontrado"
     }
 }
 
 function Stop-GoogleDrive {
-    Log "Finalizando Google Drive"
-    Get-Process $driveProcess -ErrorAction SilentlyContinue | Stop-Process -Force
+    Log "Finalizando processo Google Drive"
+
+    Get-Process $driveProcess -ErrorAction SilentlyContinue |
+        Stop-Process -Force
 }
 
-function Garantir-GoogleDrive {
-
+function Garantir-GoogleDrive-Inicializacao {
     $tentativas = 0
-    $inicio = Get-Date
+    $inicio     = Get-Date
+
+    Log "Aguardando Google Drive ficar disponivel (timeout 10min)"
 
     while ($true) {
 
         $processo = Get-Process $driveProcess -ErrorAction SilentlyContinue
-
-        $driveOk = (Test-Path "G:\") -and (Test-Path $baseCooper)
+        $driveOk  = (Test-Path "G:\") -and (Test-Path $baseCooper)
 
         if ($processo -and $driveOk) {
-            Log "Google Drive OK (processo + unidade OK)"
-            return
+            Log "Google Drive OK"
+            return $true
         }
 
         if (-not $processo) {
-            Log "Processo não encontrado"
+            Log "Processo nao encontrado, iniciando Drive"
             Start-GoogleDrive
         } else {
-            Log "Processo existe, mas unidade não está pronta"
+            Log "Processo existe mas unidade nao esta pronta"
         }
 
         Start-Sleep -Seconds 15
         $tentativas++
 
-        $driveOk = (Test-Path "G:\") -and (Test-Path $baseCooper)
-
-        if ($driveOk) {
-            Log "Drive montado com sucesso"
-            return
+        if ((Test-Path "G:\") -and (Test-Path $baseCooper)) {
+            Log "Drive montado apos aguardar"
+            return $true
         }
 
         if ($tentativas -ge 8) {
-            Log "Drive não respondeu após várias tentativas, reiniciando..."
+            Log "Reiniciando Drive apos $tentativas tentativas sem resposta"
+
             Stop-GoogleDrive
-            Start-Sleep 5
+
+            Start-Sleep -Seconds 5
+
             Start-GoogleDrive
+
             $tentativas = 0
         }
 
         if ((Get-Date) -gt $inicio.AddMinutes(10)) {
-            Log "Timeout geral atingido (10 minutos)"
-            break
+            Log "Timeout de inicializacao atingido (10 min) - continuando sem Drive"
+            return $false
         }
     }
 }
 
-Log "==== INICIO DO SCRIPT ===="
-
-try {
-    Garantir-GoogleDrive
-    Log "Inicialização concluída"
-} catch {
-    Log "Erro geral: $_"
+function Drive-Disponivel {
+    return ((Test-Path "G:\") -and (Test-Path $baseCooper))
 }
 
-Log "==== FIM DO SCRIPT ===="
+Log "==== MONITOR INICIADO ===="
+
+try {
+    Garantir-GoogleDrive-Inicializacao | Out-Null
+} catch {
+    Log "Erro durante inicializacao do Drive: $_"
+}
 
 $pastaPublico = $null
 $pastaQuimico = $null
 $pastaTI      = $null
 
 if (Test-Path $cacheFile) {
+
     try {
+
         $cache = Get-Content $cacheFile -Raw | ConvertFrom-Json
 
         if (
@@ -136,16 +192,24 @@ if (Test-Path $cacheFile) {
             (Test-Path $cache.quimico) -and
             (Test-Path $cache.ti)
         ) {
+
             $pastaPublico = $cache.publico
             $pastaQuimico = $cache.quimico
             $pastaTI      = $cache.ti
+
+            Log "Pastas carregadas do cache"
         }
+
     } catch {
-        Log "Erro ao ler cache"
+        Log "Erro ao ler cache de pastas: $_"
     }
 }
 
-if (-not $pastaPublico -or -not $pastaQuimico -or -not $pastaTI) {
+if (
+    (-not $pastaPublico) -or
+    (-not $pastaQuimico) -or
+    (-not $pastaTI)
+) {
 
     Log "Recriando cache de pastas"
 
@@ -153,11 +217,13 @@ if (-not $pastaPublico -or -not $pastaQuimico -or -not $pastaTI) {
 
     $pastaPublicoObj = $nivel1 | ForEach-Object {
         Get-ChildItem $_.FullName -Directory -ErrorAction SilentlyContinue
-    } | Where-Object { $_.Name -like "*blico" } | Select-Object -First 1
+    } | Where-Object {
+        $_.Name -like "*blico"
+    } | Select-Object -First 1
 
     if (-not $pastaPublicoObj) {
-        Log "Erro ao localizar pasta Público"
-        exit
+        Log "ERRO CRITICO: Pasta Publico nao localizada. Encerrando."
+        exit 1
     }
 
     $pastaPublico = $pastaPublicoObj.FullName
@@ -167,8 +233,8 @@ if (-not $pastaPublico -or -not $pastaQuimico -or -not $pastaTI) {
         Select-Object -First 1
 
     if (-not $pastaQuimicoObj) {
-        Log "Erro ao localizar pasta Químico"
-        exit
+        Log "ERRO CRITICO: Pasta Quimico nao localizada. Encerrando."
+        exit 1
     }
 
     $pastaQuimico = $pastaQuimicoObj.FullName
@@ -178,8 +244,8 @@ if (-not $pastaPublico -or -not $pastaQuimico -or -not $pastaTI) {
         Select-Object -First 1
 
     if (-not $pastaTIObj) {
-        Log "Erro ao localizar pasta TI"
-        exit
+        Log "ERRO CRITICO: Pasta TI nao localizada. Encerrando."
+        exit 1
     }
 
     $pastaTI = $pastaTIObj.FullName
@@ -191,107 +257,295 @@ if (-not $pastaPublico -or -not $pastaQuimico -or -not $pastaTI) {
     } | ConvertTo-Json | Set-Content $cacheFile -Encoding UTF8
 }
 
-$pastaXML            = Join-Path $pastaQuimico "XML MDFe SEGURO RCV"
-$pastaControle       = Join-Path $pastaTI "LOGS AVERBACAO"
+$pastaXML             = Join-Path $pastaQuimico "XML MDFe SEGURO RCV"
+$pastaControle        = Join-Path $pastaTI "LOGS AVERBACAO"
 $arquivoControleFinal = Join-Path $pastaControle "controle_mdfe.json"
 
-$logNuvem = $pastaControle
-
-if (-not (Test-Path $logNuvem)) {
-    New-Item -ItemType Directory -Force -Path $logNuvem | Out-Null
-}
-
-$logFile = Join-Path $logNuvem "monitor_xml_$maquina.log"
-
-Log "Log agora sendo salvo na nuvem"
-
-New-Item -ItemType Directory -Force -Path $pastaXML      | Out-Null
+New-Item -ItemType Directory -Force -Path $pastaXML | Out-Null
 New-Item -ItemType Directory -Force -Path $pastaControle | Out-Null
 
+$script:logFile      = Join-Path $pastaControle "monitor_xml_$maquina.log"
+$script:errorLogFile = Join-Path $pastaControle "monitor_xml_error_$maquina.log"
+
+LogInicio
+Log "Logs redirecionados para o Drive"
+Log "Pasta XML: $pastaXML"
+Log "Pasta Controle: $pastaControle"
+
+function Registrar-Averbacao($JsonTemp, $XmlNome, $Movido, $MotivoFalha) {
+
+    $novoRegistro = [PSCustomObject]@{
+        tipo           = $JsonTemp.tipo
+        numeroCte      = $JsonTemp.numeroCte
+        id             = $JsonTemp.id
+        usuarioSistema = $JsonTemp.usuarioSistema
+        maquina        = $maquina
+        dataEvento     = $JsonTemp.data
+        dataProcessado = Get-Date -Format "dd/MM/yyyy HH:mm:ss"
+        xmlNome        = $XmlNome
+        averbacaoOk    = $Movido
+        motivoFalha    = $MotivoFalha
+    }
+
+    if (-not (Drive-Disponivel)) {
+
+        LogErro "Drive indisponivel ao registrar averbacao"
+
+        $novoRegistro |
+            ConvertTo-Json |
+            Add-Content (Join-Path "C:\XML_MDFE" "averbacoes_pendentes.json") -Encoding UTF8
+
+        return
+    }
+
+    try {
+
+        if (Test-Path $arquivoControleFinal) {
+
+            $conteudoRaw = Get-Content $arquivoControleFinal -Raw | ConvertFrom-Json
+            $conteudo    = @($conteudoRaw)
+
+        } else {
+
+            $conteudo = @()
+        }
+
+        $conteudo += $novoRegistro
+
+        $tempFile = "$arquivoControleFinal.tmp"
+
+        $conteudo |
+            ConvertTo-Json -Depth 5 |
+            Set-Content $tempFile -Encoding UTF8
+
+        Move-Item $tempFile $arquivoControleFinal -Force
+
+        if ($Movido) {
+            $status = "OK"
+        } else {
+            $status = "FALHA"
+        }
+
+        if ($XmlNome) {
+            $xmlLog = $XmlNome
+        } else {
+            $xmlLog = "NAO ENCONTRADO"
+        }
+
+        Log "Averbacao registrada | CTe $($JsonTemp.numeroCte) | XML: $xmlLog | Status: $status"
+
+    } catch {
+        LogErro "Falha ao gravar controle_mdfe.json: $_"
+    }
+}
+
+function Processar-Controle($controleTemp) {
+
+    $jsonString = Get-Content $controleTemp -Raw -ErrorAction SilentlyContinue
+
+    if (-not $jsonString -or $jsonString.Trim() -eq "") {
+
+        Log "controle_mdfe.json vazio - descartando"
+
+        Remove-Item $controleTemp -Force -ErrorAction SilentlyContinue
+
+        return
+    }
+
+    $jsonTemp = $null
+
+    try {
+        $jsonTemp = $jsonString | ConvertFrom-Json
+    } catch {
+    }
+
+    if (
+        (-not $jsonTemp) -or
+        ($jsonTemp.tipo -ne "MDFe") -or
+        (-not $jsonTemp.numeroCte)
+    ) {
+
+        Log "controle_mdfe.json invalido ou de outro tipo - descartando"
+
+        Remove-Item $controleTemp -Force -ErrorAction SilentlyContinue
+
+        return
+    }
+
+    try {
+        $dataEvento = [datetime]::Parse($jsonTemp.data)
+    } catch {
+
+        LogErro "Timestamp invalido no JSON ('$($jsonTemp.data)'): $_"
+
+        Remove-Item $controleTemp -Force -ErrorAction SilentlyContinue
+
+        return
+    }
+
+    Log "Aguardando XML para CTe $($jsonTemp.numeroCte) (timeout 30s)"
+
+    $xml          = $null
+    $timeout      = (Get-Date).AddSeconds(30)
+    $janelaInicio = $dataEvento.AddSeconds(-15)
+
+    while ((Get-Date) -lt $timeout) {
+
+        $candidatos = Get-ChildItem $downloads -Filter "*.xml" -ErrorAction SilentlyContinue |
+            Where-Object {
+                $_.LastWriteTime -gt $janelaInicio
+            } |
+            Sort-Object LastWriteTime -Descending
+
+        foreach ($candidato in $candidatos) {
+
+            $chave = $candidato.BaseName
+
+            if ($chave.Length -ne 44) {
+                continue
+            }
+
+            $modelo = $chave.Substring(20, 2)
+
+            if ($modelo -ne "58") {
+                continue
+            }
+
+            $tamanho1 = $candidato.Length
+
+            Start-Sleep -Milliseconds 300
+
+            $itemAtual = Get-Item $candidato.FullName -ErrorAction SilentlyContinue
+
+            if ($itemAtual) {
+                $tamanho2 = $itemAtual.Length
+            } else {
+                $tamanho2 = $null
+            }
+
+            if (
+                ($tamanho1 -eq $tamanho2) -and
+                ($tamanho2 -gt 0)
+            ) {
+
+                $xml = $candidato
+                break
+            }
+        }
+
+        if ($xml) {
+            break
+        }
+
+        Start-Sleep -Milliseconds 500
+    }
+
+    if (-not $xml) {
+
+        LogErro "XML nao encontrado em 30s para CTe $($jsonTemp.numeroCte)"
+
+        Registrar-Averbacao `
+            -JsonTemp $jsonTemp `
+            -XmlNome $null `
+            -Movido $false `
+            -MotivoFalha "XML nao chegou em 30s"
+
+        Remove-Item $controleTemp -Force -ErrorAction SilentlyContinue
+
+        return
+    }
+
+    Log "XML encontrado: $($xml.Name)"
+
+    $destino = Join-Path $pastaXML $xml.Name
+    $movido  = $false
+    $motivo  = $null
+
+    try {
+
+        if (Test-Path $destino) {
+
+            LogErro "XML ja existe no destino: $($xml.Name)"
+
+            $motivo = "XML ja existia no destino"
+
+        } else {
+
+            Move-Item $xml.FullName $destino -Force
+
+            Log "XML movido para: $destino"
+
+            $movido = $true
+        }
+
+    } catch {
+
+        LogErro "Falha ao mover XML $($xml.Name): $_"
+
+        $motivo = "Erro ao mover: $_"
+    }
+
+    Registrar-Averbacao `
+        -JsonTemp $jsonTemp `
+        -XmlNome $xml.Name `
+        -Movido $movido `
+        -MotivoFalha $motivo
+
+    Remove-Item $controleTemp -Force -ErrorAction SilentlyContinue
+}
+
+Log "Loop principal iniciado"
+
 while ($true) {
-    if (-not (Test-Path $baseCooper)) {
-        Log "Drive caiu, tentando recuperar"
-        Garantir-GoogleDrive
+
+    if (-not (Drive-Disponivel)) {
+
+        Log "Drive indisponivel - aguardando 30s"
+
+        Start-Sleep -Seconds 30
+
+        continue
     }
 
     $controleTemp = Join-Path $downloads "controle_mdfe.json"
 
     if (Test-Path $controleTemp) {
 
+        Start-Sleep -Milliseconds 300
+
+        $controleProcessando = Join-Path `
+            $downloads `
+            "controle_mdfe_proc_$(Get-Date -Format 'HHmmss_fff').json"
+
         try {
 
-            Start-Sleep -Milliseconds 300
+            Rename-Item `
+                $controleTemp `
+                $controleProcessando `
+                -Force `
+                -ErrorAction Stop
 
-            $jsonString = Get-Content $controleTemp -Raw
-
-            if (-not $jsonString -or $jsonString.Trim() -eq "") {
-                Remove-Item $controleTemp -Force
-                continue
-            }
-
-            $jsonTemp = $jsonString | ConvertFrom-Json
-
-            if ($jsonTemp.tipo -ne "MDFe" -or -not $jsonTemp.numeroCte) {
-                Remove-Item $controleTemp -Force
-                continue
-            }
+        } catch {
 
             Start-Sleep -Seconds 1
 
-            $agora = Get-Date
+            continue
+        }
 
-            $xml = Get-ChildItem $downloads -Filter *.xml |
-                Where-Object { $_.LastWriteTime -gt $agora.AddMinutes(-2) } |
-                Sort-Object LastWriteTime -Descending |
-                Select-Object -First 1
+        try {
 
-            if ($xml) {
-
-                $destinoXML = Join-Path $pastaXML $xml.Name
-
-                if (Test-Path $destinoXML) {
-                    $destinoXML = Join-Path $pastaXML ("dup_" + $xml.Name)
-                }
-
-                Move-Item $xml.FullName $destinoXML -ErrorAction Stop
-            }
-
-            $novoRegistro = [PSCustomObject]@{
-                tipo           = $jsonTemp.tipo
-                numeroCte      = $jsonTemp.numeroCte
-                id             = $jsonTemp.id
-                usuarioSistema = $jsonTemp.usuarioSistema
-                dataEvento     = $jsonTemp.data
-                dataProcessado = Get-Date -Format "dd/MM/yyyy HH:mm:ss"
-            }
-
-            if (Test-Path $arquivoControleFinal) {
-                $conteudo = Get-Content $arquivoControleFinal -Raw | ConvertFrom-Json
-                if ($conteudo -isnot [System.Collections.IEnumerable]) {
-                    $conteudo = @($conteudo)
-                }
-            } else {
-                $conteudo = @()
-            }
-
-            $conteudo += $novoRegistro
-
-            $tempFile = "$arquivoControleFinal.tmp"
-
-            $conteudo | ConvertTo-Json -Depth 5 | Set-Content $tempFile -Encoding UTF8
-            Move-Item $tempFile $arquivoControleFinal -Force
-
-            Remove-Item $controleTemp -Force
-
-            Log "Processado CTe $($jsonTemp.numeroCte) | XML: $($xml.name)"
+            Processar-Controle $controleProcessando
 
         } catch {
-            Log "Erro ao processar JSON: $_"
-            if (Test-Path $controleTemp) {
-                Remove-Item $controleTemp -Force
-            }
+
+            LogErro "Excecao nao tratada ao processar controle: $_"
+
+            Remove-Item `
+                $controleProcessando `
+                -Force `
+                -ErrorAction SilentlyContinue
         }
     }
 
-    Start-Sleep 2
+    Start-Sleep -Seconds 2
 }
