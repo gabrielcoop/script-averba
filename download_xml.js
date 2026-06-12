@@ -22,14 +22,14 @@
     }
   }
 
-  function gerarControle(id, numeroCte) {
+  function gerarControle(id, numero, tipo) {
     const usuarioSistema = getCookie("swu") || "desconhecido";
     const dataBR = formatarDataBR();
 
     const conteudo = JSON.stringify({
-      tipo: "MDFe",
+      tipo: tipo,
       id: id,
-      numeroCte: numeroCte,
+      numero: numero,
       usuarioSistema: usuarioSistema,
       data: dataBR
     }, null, 2);
@@ -56,13 +56,24 @@
         if (selecionado && selecionado.value === "G") {
 
           const linhaCorreta = document.querySelector('tr.swrg-list-sel');
-          const numeroCte = linhaCorreta
-            ?.querySelector('td[swni="no"]')
-            ?.innerText
-            ?.trim();
+          if (linhaCorreta?.querySelector('td[swni="no"]')) {
+            const numero = linhaCorreta
+              ?.querySelector('td[swni="no"]')
+              ?.innerText
+              ?.trim();
+            if (numero) {
+              gerarControle(id, numero, "CT-e");
+            }
+          }
 
-          if (numeroCte) {
-            gerarControle(id, numeroCte);
+          else if (linhaCorreta?.querySelector('td[swni="numero"]')) {
+            const numero = linhaCorreta
+              ?.querySelector('td[swni="numero"]')
+              ?.innerText
+              ?.trim();
+            if (numero) {
+              gerarControle(id, numero, "MDF-e");
+            }
           }
         }
 

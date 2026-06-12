@@ -276,7 +276,7 @@ function Registrar-Averbacao($JsonTemp, $XmlNome, $Movido, $MotivoFalha) {
 
     $novoRegistro = [PSCustomObject]@{
         tipo           = $JsonTemp.tipo
-        numeroCte      = $JsonTemp.numeroCte
+        numero         = $JsonTemp.numero
         id             = $JsonTemp.id
         usuarioSistema = $JsonTemp.usuarioSistema
         maquina        = $maquina
@@ -332,7 +332,7 @@ function Registrar-Averbacao($JsonTemp, $XmlNome, $Movido, $MotivoFalha) {
             $xmlLog = "NAO ENCONTRADO"
         }
 
-        Log "Averbacao registrada | CTe $($JsonTemp.numeroCte) | XML: $xmlLog | Status: $status"
+        Log "Averbacao registrada | $($JsonTemp.tipo) $($JsonTemp.numero) | XML: $xmlLog | Status: $status"
 
     } catch {
         LogErro "Falha ao gravar controle_mdfe.json: $_"
@@ -361,9 +361,12 @@ function Processar-Controle($controleTemp) {
 
     if (
         (-not $jsonTemp) -or
-        ($jsonTemp.tipo -ne "MDFe") -or
-        (-not $jsonTemp.numeroCte)
-    ) {
+        (
+            ($jsonTemp.tipo -ne "MDF-e") -and
+            ($jsonTemp.tipo -ne "CT-e")
+        ) -or
+        (-not $jsonTemp.numero)
+    ){
 
         Log "controle_mdfe.json invalido ou de outro tipo - descartando"
 
@@ -383,7 +386,7 @@ function Processar-Controle($controleTemp) {
         return
     }
 
-    Log "Aguardando XML para CTe $($jsonTemp.numeroCte) (timeout 30s)"
+    Log "Aguardando XML para $($jsonTemp.tipo) $($jsonTemp.numero) (timeout 30s)"
 
     $xml          = $null
     $timeout      = (Get-Date).AddSeconds(30)
@@ -442,7 +445,7 @@ function Processar-Controle($controleTemp) {
 
     if (-not $xml) {
 
-        LogErro "XML nao encontrado em 30s para CTe $($jsonTemp.numeroCte)"
+        LogErro "XML nao encontrado em 30s para $($jsonTemp.tipo) $($jsonTemp.numero)"
 
         Registrar-Averbacao `
             -JsonTemp $jsonTemp `
