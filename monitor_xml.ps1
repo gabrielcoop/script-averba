@@ -277,14 +277,9 @@ function Registrar-Averbacao($JsonTemp, $XmlNome, $Movido, $MotivoFalha) {
     $novoRegistro = [PSCustomObject]@{
         tipo           = $JsonTemp.tipo
         numero         = $JsonTemp.numero
-        id             = $JsonTemp.id
         usuarioSistema = $JsonTemp.usuarioSistema
-        maquina        = $maquina
         dataEvento     = $JsonTemp.data
-        dataProcessado = Get-Date -Format "dd/MM/yyyy HH:mm:ss"
         xmlNome        = $XmlNome
-        averbacaoOk    = $Movido
-        motivoFalha    = $MotivoFalha
     }
 
     if (-not (Drive-Disponivel)) {
